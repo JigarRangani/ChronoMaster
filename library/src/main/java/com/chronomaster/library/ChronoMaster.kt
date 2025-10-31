@@ -1,7 +1,12 @@
 package com.chronomaster.library
 
-import java.util.Date
-import java.util.TimeZone
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.time.zone.ZoneRulesException
+import java.util.Locale
 
 /**
  * A sealed class representing the result of an operation, which can either be a success or an error.
@@ -28,78 +33,97 @@ sealed class ChronoResult<out T> {
  */
 object ChronoMaster {
 
-    private var defaultInputTimeZone: TimeZone = TimeZone.getTimeZone("UTC")
-    private var defaultOutputTimeZone: TimeZone = TimeZone.getDefault()
+    private var defaultInputZoneId: ZoneId = ZoneId.of("UTC")
+    private var defaultOutputZoneId: ZoneId = ZoneId.systemDefault()
 
     /**
-     * Initializes the ChronoMaster library with default timezones.
+     * Initializes the ChronoMaster library with default timezones and optional custom date format parsers.
      * This should typically be called once in your Application class.
      *
      * @param inputTimeZoneId The default IANA time zone ID for input date strings (e.g., "UTC").
      * @param outputTimeZoneId The default IANA time zone ID for output formatted strings (e.g., "Asia/Kolkata").
+     * @param customParsers A list of custom date format patterns to be added to the automatic detection engine.
      */
-    fun initialize(inputTimeZoneId: String, outputTimeZoneId: String) {
+    fun initialize(
+        inputTimeZoneId: String,
+        outputTimeZoneId: String,
+        customParsers: List<String> = emptyList()
+    ) {
         try {
-            defaultInputTimeZone = TimeZone.getTimeZone(inputTimeZoneId)
-            defaultOutputTimeZone = TimeZone.getTimeZone(outputTimeZoneId)
-        } catch (e: Exception) {
-            // Log this error, but don't crash. Fallback to defaults.
+            defaultInputZoneId = ZoneId.of(inputTimeZoneId)
+            defaultOutputZoneId = ZoneId.of(outputTimeZoneId)
+        } catch (e: ZoneRulesException) {
             println("ChronoMaster: Invalid timezone ID provided during initialization. Falling back to defaults. Error: ${e.message}")
+        }
+        DateParser.addCustomParsers(customParsers)
+    }
+
+    /**
+     * Parses a date string and returns a ZonedDateTime object on success.
+     * This is useful when you need to perform manipulations on the date object itself.
+     *
+     * @param dateString The input date string to be parsed.
+     * @return A [ChronoResult] containing the parsed ZonedDateTime on success, or an error message.
+     */
+    fun parseDate(dateString: String): ChronoResult<ZonedDateTime> {
+        return DateParser.parse(dateString, defaultInputZoneId)
+    }
+
+    /**
+     * Formats a given date string into a specified output format pattern, using the globally configured timezones.
+     *
+     * @param dateString The input date string to be formatted.
+     * @param outputFormat The desired output format pattern (e.g., "dd MMM, yyyy 'at' hh:mm a").
+     * @return A [ChronoResult] containing the formatted date string on success, or an error message.
+     */
+    fun formatDate(dateString: String, outputFormat: String): ChronoResult<String> {
+        return when (val parseResult = parseDate(dateString)) {
+            is ChronoResult.Success -> {
+                try {
+                    val formatter = DateTimeFormatter.ofPattern(outputFormat, Locale.getDefault())
+                    val formattedDate = parseResult.data.withZoneSameInstant(defaultOutputZoneId).format(formatter)
+                    ChronoResult.Success(formattedDate)
+                } catch (e: Exception) {
+                    ChronoResult.Error("Failed to format date with pattern '$outputFormat'.", e)
+                }
+            }
+            is ChronoResult.Error -> parseResult
         }
     }
 
     /**
-     * Formats a given date string into a specified output format, using the globally configured timezones.
-     *
-     * @param dateString The input date string to be formatted (e.g., "2025-10-31T10:30:00Z", "31/10/2025", 1730389200).
-     * @param outputFormat The desired output format (e.g., "dd MMM, yyyy 'at' hh:mm a").
-     * @return A [ChronoResult] containing the formatted date string on success, or an error message.
-     */
-    fun formatDate(dateString: String, outputFormat: String): ChronoResult<String> {
-        return DateParser.parseAndFormat(
-            dateString = dateString,
-            outputFormat = outputFormat,
-            inputTimeZone = defaultInputTimeZone,
-            outputTimeZone = defaultOutputTimeZone
-        )
-    }
-
-    /**
-     * Formats a given date string into a specified output format, using custom timezones that override the global configuration.
+     * Formats a given date string using a standard, locale-aware format style.
      *
      * @param dateString The input date string to be formatted.
-     * @param outputFormat The desired output format.
-     * @param inputTimeZoneId The IANA time zone ID of the input string.
-     * @param outputTimeZoneId The IANA time zone ID for the output string.
-     * @return A [ChronoResult] containing the formatted date string on success, or an error message.
+     * @param formatStyle The desired [FormatStyle] (e.g., FormatStyle.MEDIUM, FormatStyle.LONG).
+     * @param locale The locale to be used for formatting. Defaults to the system's default locale.
+     * @return A [ChronoResult] containing the localized formatted date string on success, or an error message.
      */
     fun formatDate(
         dateString: String,
-        outputFormat: String,
-        inputTimeZoneId: String,
-        outputTimeZoneId: String
+        formatStyle: FormatStyle,
+        locale: Locale = Locale.getDefault()
     ): ChronoResult<String> {
-        return try {
-            val inputTimeZone = TimeZone.getTimeZone(inputTimeZoneId)
-            val outputTimeZone = TimeZone.getTimeZone(outputTimeZoneId)
-            DateParser.parseAndFormat(
-                dateString = dateString,
-                outputFormat = outputFormat,
-                inputTimeZone = inputTimeZone,
-                outputTimeZone = outputTimeZone
-            )
-        } catch (e: Exception) {
-            ChronoResult.Error("Invalid custom timezone ID provided. Error: ${e.message}", e)
+        return when (val parseResult = parseDate(dateString)) {
+            is ChronoResult.Success -> {
+                try {
+                    val formatter = DateTimeFormatter.ofLocalizedDateTime(formatStyle).withLocale(locale)
+                    val formattedDate = parseResult.data.withZoneSameInstant(defaultOutputZoneId).format(formatter)
+                    ChronoResult.Success(formattedDate)
+                } catch (e: Exception) {
+                    ChronoResult.Error("Failed to format date with style '$formatStyle' for locale '$locale'.", e)
+                }
+            }
+            is ChronoResult.Error -> parseResult
         }
     }
 
     /**
      * Asynchronously fetches the current "true" time from a reliable network source.
-     * This is crucial for handling cases where a user has manually changed their device clock.
      *
-     * @return A [ChronoResult] containing a trustworthy timestamp (Long) on success, or an error.
+     * @return A [ChronoResult] containing a trustworthy `java.time.Instant` on success, or an error.
      */
-    suspend fun getTrueTime(): ChronoResult<Long> {
+    suspend fun getTrueTime(): ChronoResult<Instant> {
         return NtpClient.getTrueTime()
     }
 
@@ -114,24 +138,24 @@ object ChronoMaster {
     }
 
     /**
-     * Adds a specified number of days to a Date object.
+     * Adds a specified number of days to a ZonedDateTime object.
      *
-     * @param date The original date.
+     * @param zonedDateTime The original date-time.
      * @param days The number of days to add.
-     * @return A new Date object representing the result.
+     * @return A new ZonedDateTime object representing the result.
      */
-    fun plusDays(date: Date, days: Int): Date {
-        return DateUtils.plusDays(date, days)
+    fun plusDays(zonedDateTime: ZonedDateTime, days: Long): ZonedDateTime {
+        return DateUtils.plusDays(zonedDateTime, days)
     }
 
     /**
-     * Subtracts a specified number of days from a Date object.
+     * Subtracts a specified number of days from a ZonedDateTime object.
      *
-     * @param date The original date.
+     * @param zonedDateTime The original date-time.
      * @param days The number of days to subtract.
-     * @return A new Date object representing the result.
+     * @return A new ZonedDateTime object representing the result.
      */
-    fun minusDays(date: Date, days: Int): Date {
-        return DateUtils.minusDays(date, days)
+    fun minusDays(zonedDateTime: ZonedDateTime, days: Long): ZonedDateTime {
+        return DateUtils.minusDays(zonedDateTime, days)
     }
 }

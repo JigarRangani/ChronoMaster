@@ -1,81 +1,88 @@
 package com.chronomaster.library
 
-import java.text.SimpleDateFormat
-import java.util.*
-import java.util.concurrent.TimeUnit
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import java.util.Locale
 
 /**
  * An internal object responsible for parsing date strings by attempting various common formats.
  */
 internal object DateParser {
 
-    // A prioritized list of common date formats.
-    private val SUPPORTED_FORMATS = listOf(
-        // ISO 8601 variations
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US),
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US),
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US),
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US),
+    // A prioritized list of common date formats using the thread-safe DateTimeFormatter.
+    private val SUPPORTED_FORMATTERS = mutableListOf(
+        // ISO 8601 variations are handled automatically by ZonedDateTime.parse
+        DateTimeFormatter.ISO_ZONED_DATE_TIME,
+        DateTimeFormatter.ISO_OFFSET_DATE_TIME,
+        DateTimeFormatter.ISO_INSTANT,
 
         // Common server formats
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US),
-        SimpleDateFormat("yyyy-MM-dd", Locale.US),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.US),
 
         // Formats with different separators
-        SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.US),
-        SimpleDateFormat("dd/MM/yyyy", Locale.US),
-        SimpleDateFormat("MM/dd/yyyy HH:mm:ss", Locale.US),
-        SimpleDateFormat("MM/dd/yyyy", Locale.US),
+        DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss", Locale.US),
+        DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.US),
+        DateTimeFormatter.ofPattern("MM/dd/yyyy HH:mm:ss", Locale.US),
+        DateTimeFormatter.ofPattern("MM/dd/yyyy", Locale.US),
 
         // Textual formats
-        SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US),
-        SimpleDateFormat("MMM dd, yyyy", Locale.US),
+        DateTimeFormatter.RFC_1123_DATE_TIME,
+        DateTimeFormatter.ofPattern("MMM dd, yyyy", Locale.US),
     )
 
     /**
-     * Parses a date string by trying a list of supported formats and then formats it to the desired output.
-     * Also handles Epoch timestamp parsing.
+     * Adds a list of custom date format patterns to the parser's repertoire.
+     * @param patterns A list of date format strings.
+     */
+    fun addCustomParsers(patterns: List<String>) {
+        patterns.forEach {
+            try {
+                SUPPORTED_FORMATTERS.add(DateTimeFormatter.ofPattern(it, Locale.US))
+            } catch (e: IllegalArgumentException) {
+                // Log or handle invalid patterns provided by the user.
+                println("ChronoMaster: Invalid custom parser pattern provided: '$it'. It will be ignored.")
+            }
+        }
+    }
+
+    /**
+     * Parses a date string by trying a list of supported formats. Handles Epoch timestamps as well.
      *
      * @param dateString The raw date string or timestamp.
-     * @param outputFormat The desired pattern for the output string.
-     * @param inputTimeZone The timezone of the input date.
-     * @param outputTimeZone The timezone for the output date.
-     * @return A [ChronoResult] with the formatted string or an error.
+     * @param inputZoneId The timezone to assume for date strings that don't specify an offset.
+     * @return A [ChronoResult] with the parsed ZonedDateTime or an error.
      */
-    fun parseAndFormat(
-        dateString: String,
-        outputFormat: String,
-        inputTimeZone: TimeZone,
-        outputTimeZone: TimeZone
-    ): ChronoResult<String> {
+    fun parse(dateString: String, inputZoneId: ZoneId): ChronoResult<ZonedDateTime> {
         // First, attempt to parse as a numeric (Epoch) timestamp.
         dateString.toLongOrNull()?.let { epoch ->
             return try {
-                val date = when {
-                    // Check if it's seconds (a reasonable range for modern dates)
-                    epoch < 1_000_000_000_000 -> Date(TimeUnit.SECONDS.toMillis(epoch))
-                    // Assume milliseconds otherwise
-                    else -> Date(epoch)
+                val instant = when {
+                    epoch < 1_000_000_000_000L -> Instant.ofEpochSecond(epoch) // Seconds
+                    else -> Instant.ofEpochMilli(epoch) // Milliseconds
                 }
-                val outputSdf = SimpleDateFormat(outputFormat, Locale.US)
-                outputSdf.timeZone = outputTimeZone
-                ChronoResult.Success(outputSdf.format(date))
+                ChronoResult.Success(ZonedDateTime.ofInstant(instant, inputZoneId))
             } catch (e: Exception) {
-                return ChronoResult.Error("Failed to format epoch time: $epoch", e)
+                return ChronoResult.Error("Failed to parse epoch time: $epoch", e)
             }
         }
 
-        // If not an epoch, iterate through the list of supported string formats.
-        for (sdf in SUPPORTED_FORMATS) {
+        // If not an epoch, try direct parsing with ZonedDateTime, which handles ISO formats.
+        try {
+            return ChronoResult.Success(ZonedDateTime.parse(dateString))
+        } catch (e: DateTimeParseException) {
+            // Not an ISO format, proceed to try our custom list.
+        }
+
+        // Iterate through the list of supported string formatters.
+        for (formatter in SUPPORTED_FORMATTERS) {
             try {
-                sdf.timeZone = inputTimeZone
-                val parsedDate = sdf.parse(dateString)
-                if (parsedDate != null) {
-                    val outputSdf = SimpleDateFormat(outputFormat, Locale.US)
-                    outputSdf.timeZone = outputTimeZone
-                    return ChronoResult.Success(outputSdf.format(parsedDate))
-                }
-            } catch (e: Exception) {
+                val zonedDateTime = ZonedDateTime.parse(dateString, formatter.withZone(inputZoneId))
+                return ChronoResult.Success(zonedDateTime)
+            } catch (e: DateTimeParseException) {
                 // Ignore and try the next format.
             }
         }

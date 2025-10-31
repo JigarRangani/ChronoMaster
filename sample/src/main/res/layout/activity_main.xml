@@ -37,12 +37,22 @@
         android:textStyle="bold" />
 
     <TextView
-        android:id="@+id/customTimezoneResultTextView"
+        android:id="@+id/localizedResultTextView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="Custom Timezone Result:"
-        android:tag="Custom Timezone Result:"
+        android:text="Localized (French) Result:"
+        android:tag="Localized (French) Result:"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/customParserResultTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Custom Parser Result:"
+        android:tag="Custom Parser Result:"
         android:textSize="16sp"
         android:textStyle="bold" />
 

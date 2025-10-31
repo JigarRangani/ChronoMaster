@@ -8,8 +8,8 @@ class SampleApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ChronoMaster.initialize(
-            defaultInputTimeZone = "UTC",
-            defaultOutputTimeZone = "Asia/Kolkata"
+            inputTimeZoneId = "UTC",
+            outputTimeZoneId = "Asia/Kolkata"
         )
     }
 }
