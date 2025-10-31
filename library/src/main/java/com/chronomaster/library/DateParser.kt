@@ -1,10 +1,13 @@
 package com.chronomaster.library
 
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.time.temporal.ChronoField
 import java.util.Locale
 
 /**
@@ -80,8 +83,18 @@ internal object DateParser {
         // Iterate through the list of supported string formatters.
         for (formatter in SUPPORTED_FORMATTERS) {
             try {
-                val zonedDateTime = ZonedDateTime.parse(dateString, formatter.withZone(inputZoneId))
-                return ChronoResult.Success(zonedDateTime)
+                val temporal = formatter.parse(dateString)
+                // If there's no timezone info, use the default.
+                if (!temporal.isSupported(ChronoField.OFFSET_SECONDS)) {
+                    val localDate = LocalDate.from(temporal)
+                    val localTime = if (temporal.isSupported(ChronoField.HOUR_OF_DAY)) {
+                        java.time.LocalTime.from(temporal)
+                    } else {
+                        java.time.LocalTime.MIDNIGHT
+                    }
+                    return ChronoResult.Success(LocalDateTime.of(localDate, localTime).atZone(inputZoneId))
+                }
+                return ChronoResult.Success(ZonedDateTime.from(temporal))
             } catch (e: DateTimeParseException) {
                 // Ignore and try the next format.
             }
