@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.chronomaster.library.ChronoMaster
 import com.chronomaster.library.ChronoResult
 import com.chronomaster.sample.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
@@ -80,10 +81,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun fetchAndDisplayNtpTime() {
         lifecycleScope.launch {
+            // 1. Call the suspend function directly in the launch scope
+            val result = ChronoMaster.getTrueTime()
+
+            // 2. Now, pass the *result* to displayResult. The lambda
+            //    will only handle formatting, not the network call.
             displayResult(binding.ntpTimeResultTextView) {
-                when (val result = ChronoMaster.getTrueTime()) {
+                when (result) { // Use the 'result' variable from above
                     is ChronoResult.Success -> {
-                        // The result is now a java.time.Instant, let's format it.
+                        // The result is an Instant, let's format it.
                         val instant = result.data
                         val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm:ss z")
                             .withZone(java.time.ZoneId.systemDefault()) // Format it in the device's timezone
